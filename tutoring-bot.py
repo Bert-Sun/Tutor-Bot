@@ -3,7 +3,9 @@ import discord
 subjects = {'math': 0x1, 'hist': 0x2, 'geo': 0x4, 'bio': 0x8, 'chem': 0x10, 'physics': 0x20, 'comp sci': 0x40}
 
 class TutorUser:
+#dasf
 
+#comment comment
     def __init__(self):
         self.__subscribedSubjects = 0
         self.helpMessageId = None
