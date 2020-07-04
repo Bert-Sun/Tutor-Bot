@@ -2,7 +2,7 @@ import discord
 import asyncio
 import logging
 
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S', level=logging.DEBUG)
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S', level=logging.INFO)
 
 SECOND = 1
 MINUTE = 60
@@ -10,7 +10,7 @@ HOUR = 3600
 DAY = 86400
 
 subjects = {'math': 0x1, 'hist': 0x2, 'geo': 0x4, 'bio': 0x8, 'chem': 0x10, 'physics': 0x20, 'comp sci': 0x40}
-subjectEmojis = {'math': '🔢', 'science': '👩‍🔬'}
+subjectEmojis = {'math': '#️⃣', 'cs': '🖥️', 'physics': '⚛️', 'chem': '🧪', 'bio': '🧬', 'engessay': '📝', 'french': '⚜️', 'other': '❔'}
 
 class TutorUser:
 
@@ -49,25 +49,26 @@ class TutorBot(discord.Client):
         # load all offline_members
         # await self.request_offline_members(self.guilds)
         # iterate through all users 
-        for user in self.users:
+        '''
+        for user in self.get_all_members():
             # see if user joined during server downtime and add them to internal memory if so
             if user.id not in self.userList:
                 self.userList[user.id] = TutorUser()
             # if user is offline set a timeout for them
-            if user.status == offline:
+            if user.status == discord.Status.offline:
                 await self.set_user_timeout(user)
             # if user is online check if they have a private channel, if not create one for them
-            elif user.status != offline:
+            elif user.status != discord.Status.offline:
                 await self.create_private_channel(user)
+        '''
 
     async def on_message(self, message):
         botAdminRole = discord.utils.get(message.author.guild.roles, name='Tutor Bot Admin')
         if message.author == self.user:
             return
         # create new private channel
-        if message.content == "!fakejoin" and botAdminRole in message.author.roles:
-            await self.on_member_join(message.author)
-            print(self.userList[message.author.id].privateChannelId)
+        if message.content == "!channel" and botAdminRole in message.author.roles:
+            await self.create_private_channel(message.author)
         # delete all created private channels
         elif message.content == "!prune" and botAdminRole in message.author.roles:
             privChannelCategory = discord.utils.get(message.guild.categories, name='Private Servers')
@@ -133,7 +134,7 @@ class TutorBot(discord.Client):
         privChannelCategory = discord.utils.get(server.categories, name='Private Servers')
         newChannel = await server.create_text_channel("Your Private Channel", overwrites=overwrites, category=privChannelCategory, topic=privChannelDescription)
         # send a welcome message and pin it
-        welcomeMessage = await newChannel.send('WELCOME MESSAGE PLACEHOLDER')
+        welcomeMessage = await newChannel.send('Welcome to the Oracle Student Network!')
         await welcomeMessage.pin()
         # give the new user a role
         try:
@@ -146,8 +147,12 @@ class TutorBot(discord.Client):
         # send emoji reaction message
         helpMessage = await newChannel.send(('To request for help in a specific subject, react with the following emojis:\n'+
                                              'Math: {math}\n' +
-                                             'Science: {science}\n' +
-                                             'English: \n'
+                                             'Computer Science: {cs}\n' +
+                                             'Physics: {physics}\n' +
+                                             'Chemistry: {chem}\n' +
+                                             'Biology: {bio}\n' +
+                                             'Essay Help {engessay}\n' +
+                                             'Other: {other}\n'
                                             ).format(**subjectEmojis))
         # react with the subject emojis for easy access to user
         for key, value in subjectEmojis.items():
