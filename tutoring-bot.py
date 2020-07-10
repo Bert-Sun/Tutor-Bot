@@ -9,20 +9,12 @@ token = tokenFile.read()
 
 # initialize bot and other variables
 timeoutDuration = tutor_bot.SECOND * 10
-client = tutor_bot.TutorBot(timeoutDuration)
+client = tutor_bot.TutorBot(timeoutDuration, 'user_list', 'tutor_manager')
 
 # run the bot
 loop = asyncio.get_event_loop()
 try:
     # initialize userList from saved file if exists
-    try:
-        userListFile = open('user_list', 'rb')
-        client.userList = pickle.load(userListFile)
-        userListFile.close()
-        print(client.userList)
-        print("done")
-    except:
-        client.userList = dict()
     loop.run_until_complete(client.start(token))
 except KeyboardInterrupt:
     # close connection to Discord
@@ -30,6 +22,3 @@ except KeyboardInterrupt:
 finally:
     # run cleanup
     loop.close()
-    userListFile = open('user_list', 'wb')
-    pickle.dump(client.userList, userListFile)
-    userListFile.close()
