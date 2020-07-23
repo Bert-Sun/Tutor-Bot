@@ -277,9 +277,9 @@ class TutorBot(discord.Client):
         await newChannel.set_permissions(member, read_messages=True)
         await newChannel.set_permissions(server.default_role, read_messages=False)
         # send a welcome message
-        await newChannel.send('Welcome to your very own private channel on Oracle Tutoring! ' +
+        await newChannel.send(('Welcome, {user}, to your very own private channel on Oracle Tutoring! ' +
                               'Here you can access all of our educational resources with complete anonymity. '+
-                              'Read the instructions below to ask a tutor to join this channel and help you.')
+                              'Read the instructions below to ask a tutor to join this channel and help you.').format(user=member.mention))
         await newChannel.send('On the message below you can select the specific curricular subject that would like help with. ' +
                               'To invite a tutor that specializes in a subject, click on the corresponding button for that subject')
         # store the channel id internally
