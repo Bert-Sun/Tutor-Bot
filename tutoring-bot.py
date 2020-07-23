@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 import discord
 
 subjects = {'math': 0x1, 'hist': 0x2, 'geo': 0x4, 'bio': 0x8, 'chem': 0x10, 'physics': 0x20, 'comp sci': 0x40}
@@ -72,3 +73,29 @@ token = tokenFile.read()
 
 client = TutoringBot()
 client.run(token)
+=======
+import discord
+import pickle
+import asyncio
+import tutor_bot
+
+# read token file
+tokenFile = open("token.txt", "r")
+token = tokenFile.read()
+
+# initialize bot and other variables
+timeoutDuration = tutor_bot.SECOND * 10
+client = tutor_bot.TutorBot(timeoutDuration, 'user_list', 'tutor_manager')
+
+# run the bot
+loop = asyncio.get_event_loop()
+try:
+    # initialize userList from saved file if exists
+    loop.run_until_complete(client.start(token))
+except KeyboardInterrupt:
+    # close connection to Discord
+    loop.run_until_complete(client.logout())
+finally:
+    # run cleanup
+    loop.close()
+>>>>>>> Stashed changes
