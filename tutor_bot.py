@@ -13,7 +13,7 @@ HOUR = 3600
 DAY = 86400
 
 subjectEmojis = {'math': '🔰', 'cs': '🖥️', 'physics': '💡', 'chem': '🧪', 'bio': '🧬', 'engessay': '📝', 'french': '⚜️', 'other': '❓'}
-subjects = ['math', 'cs', 'physics', 'chem', 'bio', 'eng', 'fre', 'other']
+subjects = ['math', 'cs', 'physics', 'chem', 'bio', 'engessay', 'french', 'other']
 subjectRoleNames = ['Math', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'English', 'French', 'Misc']
 
 
@@ -46,7 +46,6 @@ class TutorManager:
             if subject not in tutor.subjects and tutor.id in self.subjectTutors[subject]:
                 # remove tutor from subject
                 self.subjectTutors[subject].remove(tutor.id)
-
             # check if tutor was newly subscribed to subject
             if subject in tutor.subjects and tutor.id not in self.subjectTutors[subject]:
                 # add tutor to subject
@@ -56,14 +55,15 @@ class TutorManager:
     def request_tutor(self, subject):
         # gets a tutor for the specific subject
         assignedTutor = None
-        for tutor in self.subjectTutors[subject]:
-            tutor = self.tutorList[tutor]
-            if tutor.busy:
-                continue
-            if assignedTutor == None:
-                assignedTutor = tutor
-            elif assignedTutor.lastQuestion > tutor.lastQuestion:
-                assignedTutor = tutor
+        if self.subjectTutors.get(subject) != None:
+            for tutor in self.subjectTutors[subject]:
+                tutor = self.tutorList[tutor]
+                if tutor.busy:
+                    continue
+                if assignedTutor == None:
+                    assignedTutor = tutor
+                elif assignedTutor.lastQuestion > tutor.lastQuestion:
+                    assignedTutor = tutor
         if assignedTutor != None:
             # set assigned tutor to busy status
             self.tutorList[assignedTutor.id].busy = True
@@ -154,7 +154,6 @@ class TutorBot(discord.Client):
     async def on_ready(self):
         logging.info (textColour+"Logged on as %s" % (self.user))
         # iterate through all users 
-
         for user in self.get_all_members():
             # see if user joined during server downtime and add them to internal memory if so
             if user.id not in self.userList:
