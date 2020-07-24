@@ -12,7 +12,7 @@ MINUTE = 60
 HOUR = 3600
 DAY = 86400
 
-subjectEmojis = {'math': '#️⃣', 'cs': '🖥️', 'physics': '⚛️', 'chem': '🧪', 'bio': '🧬', 'eng': '📝', 'french': '⚜️', 'other': '❔'}
+subjectEmojis = {'math': '🔰', 'cs': '🖥️', 'physics': '💡', 'chem': '🧪', 'bio': '🧬', 'engessay': '📝', 'french': '⚜️', 'other': '❓'}
 subjects = ['math', 'cs', 'physics', 'chem', 'bio', 'eng', 'fre', 'other']
 subjectRoleNames = ['Math', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'English', 'French', 'Misc']
 
@@ -348,14 +348,14 @@ class TutorBot(discord.Client):
         self.userList[member.id].helpMessageId = helpMessageId
 
     async def send_help_message(self, channel):
-        helpMessage = await channel.send(('Math: {math}\n' +
-                                             'Computer Science: {cs}\n' +
-                                             'Physics: {physics}\n' +
-                                             'Chemistry: {chem}\n' +
-                                             'Biology: {bio}\n' +
-                                             'Essay Help {eng}\n' +
-                                             'French {french}\n' +
-                                             'Other: {other}\n'
+        helpMessage = await channel.send(('Math:                           {math}\n' +
+                                             'Computer Science:   {cs}\n' +
+                                             'Physics:                       {physics}\n' +
+                                             'Chemistry:                  {chem}\n' +
+                                             'Biology:                        {bio}\n' +
+                                             'Essay Help:                 {engessay}\n' +
+                                             'French:                        {french}\n' +
+                                             'Other:                          {other}\n'
                                             ).format(**subjectEmojis))
         # react with the subject emojis for easy access to user
         for key, value in subjectEmojis.items():
