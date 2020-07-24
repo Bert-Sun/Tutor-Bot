@@ -11,7 +11,7 @@ token = tokenFile.read()
 # initialize bot and other variables
 timeoutDuration = tutor_bot.DAY * 1
 officeHours = [(datetime.time(9,0), datetime.time(13,0))]
-client = tutor_bot.TutorBot(timeoutDuration, 'user_list', 'tutor_manager')
+client = tutor_bot.TutorBot(timeoutDuration, 'user_list', 'tutor_manager', officeHours)
 
 # run the bot
 loop = asyncio.get_event_loop()
