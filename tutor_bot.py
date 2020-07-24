@@ -2,7 +2,7 @@ import discord
 import asyncio
 import logging
 import pickle
-import time
+from datetime import datetime, time
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S', level=logging.INFO)
 textColour = ''
@@ -12,13 +12,12 @@ MINUTE = 60
 HOUR = 3600
 DAY = 86400
 
-subjectEmojis = {'math': '#️⃣', 'cs': '🖥️', 'physics': '⚛️', 'chem': '🧪', 'bio': '🧬', 'engessay': '📝', 'french': '⚜️', 'other': '❔'}
+subjectEmojis = {'math': '#️⃣', 'cs': '🖥️', 'physics': '⚛️', 'chem': '🧪', 'bio': '🧬', 'eng': '📝', 'french': '⚜️', 'other': '❔'}
 subjects = ['math', 'cs', 'physics', 'chem', 'bio', 'eng', 'fre', 'other']
 subjectRoleNames = ['Math', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'English', 'French', 'Misc']
 
 
 class Tutor:
-    # 
     def __init__(self):
         self.questionsAnswered = 0
         self.subjects = list()
@@ -70,9 +69,30 @@ class TutorManager:
             self.tutorList[assignedTutor.id].busy = True
         return assignedTutor
 
+    def request_tutor_by_id(self, tutorId):
+        if self.tutorList[tutorId].busy:
+            return None
+        else:
+            self.tutorList[tutorId].busy = True
+        return tutorId
+
     def mark_done(self, tutorId):
         self.tutorList[tutorId].busy = False
-        self.tutorList[tutorId].lastQuestion = time.time()
+        self.tutorList[tutorId].lastQuestion = datetime.now()
+
+    def reset_all(self):
+        for key in self.tutorList.keys():
+            if self.tutorList[key].busy:
+                self.mark_done(key)
+
+    def is_busy(self, tutorId):
+        return self.tutorList[tutorId].busy
+
+    def set_busy(self, tutorId):
+        self.tutorList[tutorId].busy = True
+
+    def set_unbusy(self, tutorId):
+        self.tutorList[tutorId].busy = False
 
     def get_tutor_by_id(self, tutorId):
         return self.tutorList.get(tutorId)
@@ -86,7 +106,7 @@ class TutorUser:
         self.__subscribedSubjects = 0
         self.helpMessageId = None
         self.privateChannelId = None
-        self.assignedTutor = None
+        self.assignedTutors = list()
 
         self.subjects = {'math': 0x1, 'hist': 0x2, 'geo': 0x4, 'bio': 0x8, 'chem': 0x10, 'physics': 0x20, 'comp sci': 0x40}
 
@@ -108,7 +128,7 @@ class TutorUser:
 
 class TutorBot(discord.Client):
 
-    def __init__(self, timeoutDuration, userListFilePath, tutorManagerFilePath):
+    def __init__(self, timeoutDuration, userListFilePath, tutorManagerFilePath, officeHours):
         super().__init__()
         self.userList = dict()
         self.userTimeoutList = dict()
@@ -116,6 +136,8 @@ class TutorBot(discord.Client):
         self.timeoutDuration = timeoutDuration
         self.userListFilePath = userListFilePath
         self.tutorManagerFilePath = tutorManagerFilePath
+        # expects list of two-tuples representing a list of contiguous segments of time
+        self.officeHours = officeHours
         try:
             userListFile = open(userListFilePath, 'rb')
             self.userList = pickle.load(userListFile)
@@ -152,8 +174,12 @@ class TutorBot(discord.Client):
         if message.author == self.user:
             return
         # force creation of new private channel
-        if message.content == "!channel" and botAdminRole in message.author.roles:
-            await self.create_private_channel(message.author)
+        if message.content.startswith("!channel") and botAdminRole in message.author.roles:
+            if message.mentions:
+                channelUser = message.mentions[0]
+            else:
+                channelUser = message.author
+            await self.create_private_channel(channelUser)
         # call on_member_join function
         if message.content == '!fakejoin' and botAdminRole in message.author.roles:
             await self.on_member_join(message.author)
@@ -163,7 +189,7 @@ class TutorBot(discord.Client):
             for channel in privChannelCategory.channels:
                 await self.delete_user_channel(channel, int(channel.topic))
         # refresh tutor list
-        elif message.content.split()[0] == "!refreshtutors" and botAdminRole in message.author.roles:
+        elif message.content == "!refreshtutors" and botAdminRole in message.author.roles:
             server = message.author.guild
             # check if the server is large, and request offline users if so
             if server.large:
@@ -174,17 +200,37 @@ class TutorBot(discord.Client):
                 if tutorRole in user.roles:
                     # update that tutor
                     self.loop.create_task(self.update_tutor(user))
-        elif message.content == '!done' and tutorRole in message.author.roles:
+        elif message.content == '!done' and (tutorRole in message.author.roles or botAdminRole in message.author.roles):
             # check if tutor who sent message is the assigned tutor
             tutorRequestee = self.get_user(int(message.channel.topic))
-            if self.userList[tutorRequestee.id].assignedTutor != message.author.id:
+            if message.author.id not in self.userList[tutorRequestee.id].assignedTutors and botAdminRole not in message.author.roles:
                 await message.channel.send("You are not the assigned tutor to this channel!")
                 return
             # revoke tutor permissions and mark them as done
-            await message.channel.set_permissions(message.author, overwrites=None)
-            self.tutorManager.mark_done(message.author.id)
+            for tutorId in self.userList[tutorRequestee.id].assignedTutors:
+                await message.channel.set_permissions(self.get_user(tutorId), read_messages=None)
+                self.tutorManager.mark_done(tutorId)
             # mark the user as not having an assigned tutor anymore
-            self.userList[tutorRequestee.id].assignedTutor = None
+            self.userList[tutorRequestee.id].assignedTutors = list()
+            await message.channel.send("This question has been marked as complete.")
+        elif message.content.startswith("!invitetutor") and tutorRole in message.author.roles:
+            # check if tutor who sent message is the assigned tutor
+            tutorRequestee = self.get_user(int(message.channel.topic))
+            if message.author.id not in self.userList[tutorRequestee.id].assignedTutors:
+                await message.channel.send("You are not the assigned tutor to this channel!")
+                return
+            if not message.mentions:
+                await message.channel.send("Please specify a tutor to invite!")
+            invitedTutor = message.mentions[0]
+            # check if requested tutor is currently available
+            if not self.tutorManager.is_busy(invitedTutor.id):
+                # invite the tutor to the channel
+                self.tutorManager.request_tutor_by_id(invitedTutor.id)
+                self.userList[tutorRequestee.id].assignedTutors.append(invitedTutor.id)
+                await message.channel.set_permissions(invitedTutor, read_messages=True)
+                await message.channel.send("Hi, %s! You've been invited to join in on this discussion." % (invitedTutor.mention))
+            else:
+                await message.channel.send("Sorry, that tutor is currently busy. Please try again at a later time.")
 
         
     async def on_member_join(self, member):
@@ -235,12 +281,17 @@ class TutorBot(discord.Client):
 
     async def on_member_update(self, before, after):
         logging.debug (textColour+"%s, %s" %(before.id, after.id))
+        tutorRole = discord.utils.get(before.guild.roles, name='Oracle Tutor')
         # check if user status has changed
         if before.status != after.status:
             # check if user is offline
             if after.status == discord.Status.offline:
+                # schedule timeout for user
                 logging.debug (textColour+"scheduling timeout")
                 await self.set_user_timeout(before)
+                # if user is a tutor, if so mark them as busy
+                if tutorRole in after.roles:
+                    self.tutorManager.set_busy(after.id)
             # check if user is coming online
             elif after.status != discord.Status.offline:
                 # cancel timeout task, if exists
@@ -250,15 +301,23 @@ class TutorBot(discord.Client):
                 # create a private channel for user if does not exist
                 if self.userList[after.id].privateChannelId == None:
                     await self.create_private_channel(after)
+                # check if user is a tutor, if so mark unbusy
+                if tutorRole in after.roles:
+                    self.tutorManager.set_unbusy(after.id)
 
     async def close(self):
+        # first reset all assigned tutors
+        for key in self.userList.keys():
+            self.userList[key].assignedTutors = list()
+        # also reset all tutors to not busy
+        self.tutorManager.reset_all()
         # store the user list into persistent memory
         userListFile = open(self.userListFilePath, 'wb')
         pickle.dump(self.userList, userListFile)
         userListFile.close()
         # store the tutor manager into memory as well
-        tutorManagerFile = open(self.tutorManagerFilePath, 'rb')
-        self.tutorManager = pickle.load(tutorManagerFile)
+        tutorManagerFile = open(self.tutorManagerFilePath, 'wb')
+        self.tutorManager = pickle.dump(self.tutorManager, tutorManagerFile)
         tutorManagerFile.close()
         # close connection to discord
         await super().close()
@@ -273,13 +332,13 @@ class TutorBot(discord.Client):
         # create a new channel that only the new joined user can access 
         privChannelDescription = "%s" % (member.id)
         privChannelCategory = discord.utils.get(server.categories, name='Your Private Channels')
-        newChannel = await server.create_text_channel("Your Private Channel", category=privChannelCategory, topic=privChannelDescription)
+        newChannel = await server.create_text_channel("Your Private Channel", overwrites=None, category=privChannelCategory, topic=privChannelDescription)
         await newChannel.set_permissions(member, read_messages=True)
         await newChannel.set_permissions(server.default_role, read_messages=False)
         # send a welcome message
-        await newChannel.send('Welcome to your very own private channel on Oracle Tutoring! ' +
+        await newChannel.send(('Welcome, {user}, to your very own private channel on Oracle Tutoring! ' +
                               'Here you can access all of our educational resources with complete anonymity. '+
-                              'Read the instructions below to ask a tutor to join this channel and help you.')
+                              'Read the instructions below to ask a tutor to join this channel and help you.').format(user=member.mention))
         await newChannel.send('On the message below you can select the specific curricular subject that would like help with. ' +
                               'To invite a tutor that specializes in a subject, click on the corresponding button for that subject')
         # store the channel id internally
@@ -294,7 +353,7 @@ class TutorBot(discord.Client):
                                              'Physics: {physics}\n' +
                                              'Chemistry: {chem}\n' +
                                              'Biology: {bio}\n' +
-                                             'Essay Help {engessay}\n' +
+                                             'Essay Help {eng}\n' +
                                              'French {french}\n' +
                                              'Other: {other}\n'
                                             ).format(**subjectEmojis))
@@ -310,7 +369,7 @@ class TutorBot(discord.Client):
 
     async def user_timeout(self, timeout, channel, userId):
         while self.loop.time() < timeout:
-            await asyncio.sleep(5)
+            await asyncio.sleep(5*MINUTE)
         # delete reference to the task
         del self.userTimeoutList[userId]
         await self.delete_user_channel(channel, userId)
@@ -320,6 +379,10 @@ class TutorBot(discord.Client):
         # delete reference to the privateChannelId
         self.userList[userId].privateChannelId = None
         logging.debug (textColour+"deleted private channel for user %s" % (userId))
+        # clear all tutors assigned to deleted channel
+        for tutorId in self.userList[userId].assignedTutors:
+            self.tutorManager.mark_done(tutorId)
+        self.userList[userId].assignedTutors = list()
 
     async def set_user_timeout(self, user):
         # return if user already has a set timeout
@@ -337,8 +400,12 @@ class TutorBot(discord.Client):
         self.userTimeoutList[user.id] = self.loop.create_task(self.user_timeout(timeout_time, userPrivChannel, user.id))
 
     async def assign_tutor(self, userId, channel, subject):
+        # check for office hours
+        if not self.is_office_hours():
+            await channel.send("Sorry, but we are not currently open. Please contact us during our office hours.")
+            return
         # check if the user already has a tutor
-        if self.userList[userId].assignedTutor != None:
+        if self.userList[userId].assignedTutors:
             await channel.send("You already have an assigned Tutor!")
             return
         assignedTutor = self.tutorManager.request_tutor(subject)
@@ -349,9 +416,10 @@ class TutorBot(discord.Client):
         assignedTutor = self.get_user(assignedTutor.id)
         tutorRequestee = self.get_user(userId)
         # assign tutor to user
-        self.userList[userId].assignedTutor = assignedTutor.id
+        self.userList[userId].assignedTutors.append(assignedTutor.id)
         await channel.set_permissions(assignedTutor, read_messages=True)
-        await channel.send("Hi %s, you have been assigned to work with %s on %s!" % (assignedTutor.mention, tutorRequestee.mention, subjectRoleNames[subject.index(subject)]) )
+        await channel.send("Hi %s, you have been assigned to work with %s on %s!" % (assignedTutor.mention, tutorRequestee.mention, subjectRoleNames[subjects.index(subject)]) )
+        print(subject)
 
     async def give_user_role(self, member, roleName):
         role = discord.utils.get(member.guild.roles, name=roleName)
@@ -378,3 +446,10 @@ class TutorBot(discord.Client):
                 newTutor.subjects.append(subjects[i])
         # add tutor to TutorManager
         self.tutorManager.add_tutor(newTutor)
+
+    def is_office_hours(self):
+        # returns whether it is office hours or not
+        isOfficeHours = False
+        for period in self.officeHours:
+            isOfficeHours = isOfficeHours or (period[0] <= datetime.now().time() <= period[1])
+        return isOfficeHours
