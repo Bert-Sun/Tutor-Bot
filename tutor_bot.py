@@ -105,7 +105,7 @@ class TutorManager:
 
     def next_in_queue(self, tutorId):
         tutor = self.tutorList.get(tutorId)
-        if tutor = None:
+        if tutor == None:
             raise KeyError("Invalid tutor id %s" % (tutorId))
         nextInQueue = None
         for queuedUser in self.queue:
