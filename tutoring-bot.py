@@ -10,7 +10,8 @@ token = tokenFile.read()
 
 # initialize bot and other variables
 timeoutDuration = tutor_bot.DAY * 1
-officeHours = [(datetime.time(9,0), datetime.time(13,0))]
+# office hours should be in UTC time
+officeHours = [(datetime.time(13,0), datetime.time(17,0))] # 9-13 eastern time
 client = tutor_bot.TutorBot(timeoutDuration, 'user_list', 'tutor_manager', officeHours)
 
 # run the bot

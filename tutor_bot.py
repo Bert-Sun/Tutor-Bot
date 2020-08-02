@@ -33,6 +33,7 @@ class TutorManager:
         self.subjectTutors = dict()
         # dict storing id->tutor
         self.tutorList = dict()
+        self.queue = list()
         for subject in subjects:
             self.subjectTutors[subject] = list()
 
@@ -97,8 +98,22 @@ class TutorManager:
     def get_tutor_by_id(self, tutorId):
         return self.tutorList.get(tutorId)
 
+    def add_to_queue(self, userId, channel, subject):
+        queueTuple = (userId, channel, subject)
+        if queueTuple not in self.queue:
+            self.queue.append(queueTuple)
 
-
+    def next_in_queue(self, tutorId):
+        tutor = self.tutorList.get(tutorId)
+        if tutor = None:
+            raise KeyError("Invalid tutor id %s" % (tutorId))
+        nextInQueue = None
+        for queuedUser in self.queue:
+            if queuedUser[2] in tutor.subjects:
+                nextInQueue = queuedUser
+                self.queue.remove(queuedUser)
+                break
+        return nextInQueue
 
 class TutorUser:
 
@@ -128,7 +143,7 @@ class TutorUser:
 
 class TutorBot(discord.Client):
 
-    def __init__(self, timeoutDuration, userListFilePath, tutorManagerFilePath, officeHours):
+    def __init__(self, timeoutDuration, userListFilePath, tutorManagerFilePath, officeHours, doQueue=True):
         super().__init__()
         self.userList = dict()
         self.userTimeoutList = dict()
@@ -136,6 +151,7 @@ class TutorBot(discord.Client):
         self.timeoutDuration = timeoutDuration
         self.userListFilePath = userListFilePath
         self.tutorManagerFilePath = tutorManagerFilePath
+        self.doQueue = doQueue
         # expects list of two-tuples representing a list of contiguous segments of time
         self.officeHours = officeHours
         try:
@@ -205,10 +221,14 @@ class TutorBot(discord.Client):
             if message.author.id not in self.userList[tutorRequestee.id].assignedTutors and botAdminRole not in message.author.roles:
                 await message.channel.send("You are not the assigned tutor to this channel!")
                 return
-            # revoke tutor permissions and mark them as done
+            # revoke tutor permissions and mark them as done and check if there is a queued user with requested subjects that they tutor
             for tutorId in self.userList[tutorRequestee.id].assignedTutors:
                 await message.channel.set_permissions(self.get_user(tutorId), read_messages=None)
                 self.tutorManager.mark_done(tutorId)
+                # check if there exists user in queue with desired subject in tutor subject list
+                queueEntry = self.tutorManager.next_in_queue(tutorId)
+                if queueEntry != None:
+                    await self.assign_tutor(*queueEntry)
             # mark the user as not having an assigned tutor anymore
             self.userList[tutorRequestee.id].assignedTutors = list()
             await message.channel.send("This question has been marked as complete.")
@@ -410,7 +430,13 @@ class TutorBot(discord.Client):
         assignedTutor = self.tutorManager.request_tutor(subject)
         # check if there are available tutors
         if assignedTutor == None:
-            await channel.send("Sorry, we are unable to help you at this time. Please try again later.")
+            # see if doing queue system
+            if self.doQueue:
+                # add user to queue and display queue message
+                self.tutorManager.add_to_queue(userId, channel, subject)
+                await channel.send("Unfortunately, we do not have an available tutor at this time. Don't worry though, you've been added to our queue!")
+            else:
+                await channel.send("Sorry, we are unable to help you with this subject because all tutors are busy at this time. Please try requesting a tutor again in 1 or 2 minutes. Thank you for your patience!")
             return
         assignedTutor = self.get_user(assignedTutor.id)
         tutorRequestee = self.get_user(userId)
