@@ -2,6 +2,7 @@ import discord
 import asyncio
 import logging
 import pickle
+import re
 from datetime import datetime, time
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S', level=logging.INFO)
@@ -122,6 +123,7 @@ class TutorUser:
         self.helpMessageId = None
         self.privateChannelId = None
         self.assignedTutors = list()
+        self.email = None
 
         self.subjects = {'math': 0x1, 'hist': 0x2, 'geo': 0x4, 'bio': 0x8, 'chem': 0x10, 'physics': 0x20, 'comp sci': 0x40}
 
@@ -183,73 +185,104 @@ class TutorBot(discord.Client):
                     self.loop.create_task(self.create_private_channel(user))
 
     async def on_message(self, message):
-        botAdminRole = discord.utils.get(message.author.guild.roles, name='Tutor Bot Admin')
-        tutorRole = discord.utils.get(message.author.guild.roles, name='Oracle Tutor')
         # return if message is self
         if message.author == self.user:
             return
-        # force creation of new private channel
-        if message.content.startswith("!channel") and botAdminRole in message.author.roles:
-            if message.mentions:
-                channelUser = message.mentions[0]
-            else:
-                channelUser = message.author
-            await self.create_private_channel(channelUser)
-        # call on_member_join function
-        if message.content == '!fakejoin' and botAdminRole in message.author.roles:
-            await self.on_member_join(message.author)
-        # delete all created private channels
-        elif message.content == "!prune" and botAdminRole in message.author.roles:
-            privChannelCategory = discord.utils.get(message.guild.categories, name='Your Private Channels')
-            for channel in privChannelCategory.channels:
-                await self.delete_user_channel(channel, int(channel.topic))
-        # refresh tutor list
-        elif message.content == "!refreshtutors" and botAdminRole in message.author.roles:
-            server = message.author.guild
-            # check if the server is large, and request offline users if so
-            if server.large:
-                self.request_offline_members(server)
-            # for each user check if they are a tutor
-            tutorRole = discord.utils.get(server.roles, name='Oracle Tutor')
-            for user in message.author.guild.members:
-                if tutorRole in user.roles:
-                    # update that tutor
-                    self.loop.create_task(self.update_tutor(user))
-        elif message.content == '!done' and (tutorRole in message.author.roles or botAdminRole in message.author.roles):
-            # check if tutor who sent message is the assigned tutor
-            tutorRequestee = self.get_user(int(message.channel.topic))
-            if message.author.id not in self.userList[tutorRequestee.id].assignedTutors and botAdminRole not in message.author.roles:
-                await message.channel.send("You are not the assigned tutor to this channel!")
-                return
-            # revoke tutor permissions and mark them as done and check if there is a queued user with requested subjects that they tutor
-            for tutorId in self.userList[tutorRequestee.id].assignedTutors:
-                await message.channel.set_permissions(self.get_user(tutorId), read_messages=None)
-                self.tutorManager.mark_done(tutorId)
-                # check if there exists user in queue with desired subject in tutor subject list
-                queueEntry = self.tutorManager.next_in_queue(tutorId)
-                if queueEntry != None:
-                    await self.assign_tutor(*queueEntry)
-            # mark the user as not having an assigned tutor anymore
-            self.userList[tutorRequestee.id].assignedTutors = list()
-            await message.channel.send("This question has been marked as complete.")
-        elif message.content.startswith("!invitetutor") and tutorRole in message.author.roles:
-            # check if tutor who sent message is the assigned tutor
-            tutorRequestee = self.get_user(int(message.channel.topic))
-            if message.author.id not in self.userList[tutorRequestee.id].assignedTutors:
-                await message.channel.send("You are not the assigned tutor to this channel!")
-                return
-            if not message.mentions:
-                await message.channel.send("Please specify a tutor to invite!")
-            invitedTutor = message.mentions[0]
-            # check if requested tutor is currently available
-            if not self.tutorManager.is_busy(invitedTutor.id):
-                # invite the tutor to the channel
-                self.tutorManager.request_tutor_by_id(invitedTutor.id)
-                self.userList[tutorRequestee.id].assignedTutors.append(invitedTutor.id)
-                await message.channel.set_permissions(invitedTutor, read_messages=True)
-                await message.channel.send("Hi, %s! You've been invited to join in on this discussion." % (invitedTutor.mention))
-            else:
-                await message.channel.send("Sorry, that tutor is currently busy. Please try again at a later time.")
+        # guild specific commands:
+        # check whether the channel message was sent in was in a guild
+        if type(message.author) == discord.member.Member:
+            botAdminRole = discord.utils.get(message.author.guild.roles, name='Tutor Bot Admin')
+            tutorRole = discord.utils.get(message.author.guild.roles, name='Oracle Tutor')
+            verifiedEmailRole = discord.utils.get(message.author.guild.roles, name='Verified Email')
+            # force creation of new private channel
+            if message.content.startswith("!channel") and botAdminRole in message.author.roles:
+                if message.mentions:
+                    channelUser = message.mentions[0]
+                else:
+                    channelUser = message.author
+                await self.create_private_channel(channelUser)
+            # call on_member_join function
+            if message.content == '!fakejoin' and botAdminRole in message.author.roles:
+                await self.on_member_join(message.author)
+            # delete all created private channels
+            elif message.content == "!prune" and botAdminRole in message.author.roles:
+                privChannelCategory = discord.utils.get(message.guild.categories, name='Your Private Channels')
+                for channel in privChannelCategory.channels:
+                    await self.delete_user_channel(channel, int(channel.topic))
+            # refresh tutor list
+            elif message.content == "!refreshtutors" and botAdminRole in message.author.roles:
+                server = message.author.guild
+                # check if the server is large, and request offline users if so
+                if server.large:
+                    self.request_offline_members(server)
+                # for each user check if they are a tutor
+                tutorRole = discord.utils.get(server.roles, name='Oracle Tutor')
+                for user in message.author.guild.members:
+                    if tutorRole in user.roles:
+                        # update that tutor
+                        self.loop.create_task(self.update_tutor(user))
+            elif message.content == '!done' and (tutorRole in message.author.roles or botAdminRole in message.author.roles):
+                # check if tutor who sent message is the assigned tutor
+                tutorRequestee = self.get_user(int(message.channel.topic))
+                if message.author.id not in self.userList[tutorRequestee.id].assignedTutors and botAdminRole not in message.author.roles:
+                    await message.channel.send("You are not the assigned tutor to this channel!")
+                    return
+                # revoke tutor permissions and mark them as done and check if there is a queued user with requested subjects that they tutor
+                for tutorId in self.userList[tutorRequestee.id].assignedTutors:
+                    await message.channel.set_permissions(self.get_user(tutorId), read_messages=None)
+                    self.tutorManager.mark_done(tutorId)
+                    # check if there exists user in queue with desired subject in tutor subject list
+                    queueEntry = self.tutorManager.next_in_queue(tutorId)
+                    if queueEntry != None:
+                        await self.assign_tutor(*queueEntry)
+                # mark the user as not having an assigned tutor anymore
+                self.userList[tutorRequestee.id].assignedTutors = list()
+                await message.channel.send("This question has been marked as complete.")
+            elif message.content.startswith("!invitetutor") and tutorRole in message.author.roles:
+                # check if tutor who sent message is the assigned tutor
+                tutorRequestee = self.get_user(int(message.channel.topic))
+                if message.author.id not in self.userList[tutorRequestee.id].assignedTutors:
+                    await message.channel.send("You are not the assigned tutor to this channel!")
+                    return
+                if not message.mentions:
+                    await message.channel.send("Please specify a tutor to invite!")
+                invitedTutor = message.mentions[0]
+                # check if requested tutor is currently available
+                if not self.tutorManager.is_busy(invitedTutor.id):
+                    # invite the tutor to the channel
+                    self.tutorManager.request_tutor_by_id(invitedTutor.id)
+                    self.userList[tutorRequestee.id].assignedTutors.append(invitedTutor.id)
+                    await message.channel.set_permissions(invitedTutor, read_messages=True)
+                    await message.channel.send("Hi, %s! You've been invited to join in on this discussion." % (invitedTutor.mention))
+                else:
+                    await message.channel.send("Sorry, that tutor is currently busy. Please try again at a later time.")
+            elif message.content.startswith('!unverify') and botAdminRole in message.author.roles:
+                unverifyList = list()
+                # check if message mentions is empty
+                if not message.mentions:
+                    unverifyList.append(message.author)
+                else:
+                    unverifyList = message.mentions
+                for user in unverifyList:
+                    self.userList[user.id].email = None
+            elif message.content.startswith("!verify"):
+                if verifiedEmailRole in message.author.roles:
+                    await message.channel.send('You already have an email linked to your account!')
+                else:
+                    await self.send_verification(message.author)
+            elif message.content == '!emails' and botAdminRole in message.author.roles:
+                self.dump_emails()
+
+        # otherwise, message is in private channel or group dm
+        else:
+            # check if user has verified email, if not expect it to be email verification
+            if not self.userList[message.author.id].email:
+                if re.match(r"[^@]+@[^@]+\.[^@]+", message.content):
+                    self.userList[message.author.id].email = message.content
+                    await message.channel.send('Thank you! You should now be able to use all of our services now.')
+                    await self.give_user_role(self.guilds[0].get_member(message.author.id), 'Verified Email')
+                else:
+                    await message.channel.send('Please verify your account with a valid email address!')
 
         
     async def on_member_join(self, member):
@@ -272,6 +305,7 @@ class TutorBot(discord.Client):
         # create new private channel for user
         #if self.userList[member.id].privateChannelId == None:
         await self.create_private_channel(member)
+        await self.send_verification(member)
 
     # use on_raw_reaction_add to get reactions to messages not in message cache (such as messages sent before bot startup)
     async def on_raw_reaction_add(self, payload):
@@ -285,6 +319,11 @@ class TutorBot(discord.Client):
             textChannel = server.get_channel(payload.channel_id)
             # find the user who added the reaction
             user = server.get_member(payload.user_id)
+            # check if the user has a verified email
+            verifiedEmailRole = discord.utils.get(server.roles, name='Verified Email')
+            if verifiedEmailRole not in user.roles:
+                await textChannel.send("Please verify your account first with a valid email! To resend the verification, type '!verify'.")
+                return
             emoji = str(payload.emoji)
             # find the subject selected
             subject = None
@@ -357,9 +396,10 @@ class TutorBot(discord.Client):
         # send a welcome message
         await newChannel.send(('Welcome, {user}, to your very own private channel on Oracle Tutoring! ' +
                               'Here you can access all of our educational resources with complete anonymity. '+
+                              'If this is your first time on our server, please respond to the email verification to be able to use our services.' +
                               'Read the instructions below to ask a tutor to join this channel and help you.').format(user=member.mention))
         await newChannel.send('On the message below you can select the specific curricular subject that would like help with. ' +
-                              'To invite a tutor that specializes in a subject, click on the corresponding button for that subject')
+                              'To invite a tutor that specializes in a subject, click on the corresponding button for that subject.')
         # store the channel id internally
         self.userList[member.id].privateChannelId = newChannel.id
         # send emoji reaction message
@@ -368,14 +408,14 @@ class TutorBot(discord.Client):
 
     async def send_help_message(self, channel):
         helpMessage = await channel.send(('Math:                           {math}\n' +
-                                             'Computer Science:   {cs}\n' +
-                                             'Physics:                       {physics}\n' +
-                                             'Chemistry:                  {chem}\n' +
-                                             'Biology:                        {bio}\n' +
-                                             'Essay Help:                 {engessay}\n' +
-                                             'French:                        {french}\n' +
-                                             'Other:                          {other}\n'
-                                            ).format(**subjectEmojis))
+                                          'Computer Science:   {cs}\n' +
+                                          'Physics:                       {physics}\n' +
+                                          'Chemistry:                  {chem}\n' +
+                                          'Biology:                        {bio}\n' +
+                                          'Essay Help:                 {engessay}\n' +
+                                          'French:                        {french}\n' +
+                                          'Other:                          {other}\n'
+                                         ).format(**subjectEmojis))
         # react with the subject emojis for easy access to user
         for key, value in subjectEmojis.items():
             try:
@@ -478,3 +518,14 @@ class TutorBot(discord.Client):
         for period in self.officeHours:
             isOfficeHours = isOfficeHours or (period[0] <= datetime.now().time() <= period[1])
         return isOfficeHours
+
+    async def send_verification(self, user):
+        if not user.dm_channel:
+            await user.create_dm()
+        await user.dm_channel.send("Hello! This is OracleBot from the OSN server! To get started, tell me your email address.")
+
+    def dump_emails(self):
+        emailDumpFile = open('emails', 'w+')
+        for user in self.userList.values():
+            if user.email:
+                emailDumpFile.write(user.email)
